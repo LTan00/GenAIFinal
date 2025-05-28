@@ -1,4 +1,3 @@
-import streamlit as st
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 import torch
@@ -76,7 +75,7 @@ def load_faiss_index():
 
 index = load_faiss_index()
 
-# --- Embedding functions with device fix ---
+# --- Embedding functions ---
 def get_text_embedding(text):
     inputs = processor(text=[text], return_tensors="pt", truncation=True)
     inputs = {k: v.to("cpu") for k, v in inputs.items()}
@@ -174,24 +173,27 @@ if submit_button:
         try:
             with st.spinner("Generating response..."):
                 prompt, top_items = get_query_embedding(text_query, image_file=uploaded_image, k=2)
-                response = client.text_generation(
-                    prompt=prompt,
-                    max_new_tokens=500,
+
+                response = client.chat_completion(
+                    messages=[
+                        {"role": "system", "content": "You are a helpful e-commerce assistant that answers user queries using the provided product data."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=500,
                     temperature=0.05
                 )
-                response_text = response.generated_text if hasattr(response, "generated_text") else str(response)
-            
+
+                response_text = response.choices[0].message["content"]
+
             st.subheader("Response:")
             st.write(response_text)
 
-            # Extract image URLs from the LLM response and display them
             img_urls = re.findall(r"https:\/\/[^\s\"']+?\.jpg", response_text, flags=re.IGNORECASE)
             if img_urls:
                 st.subheader("Images:")
                 for url in img_urls:
                     st.image(url, use_column_width=True)
             else:
-                # If no images found in response, optionally show images from top results
                 st.info("No images found in the response.")
 
         except Exception as e:
