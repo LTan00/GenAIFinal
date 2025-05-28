@@ -1,3 +1,4 @@
+import streamlit as st
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 import torch
@@ -75,7 +76,7 @@ def load_faiss_index():
 
 index = load_faiss_index()
 
-# --- Embedding functions ---
+# --- Embedding functions with device fix ---
 def get_text_embedding(text):
     inputs = processor(text=[text], return_tensors="pt", truncation=True)
     inputs = {k: v.to("cpu") for k, v in inputs.items()}
@@ -106,19 +107,17 @@ def build_prompt(query, top_metadata):
         prompt_parts.append(section)
     context = "\n\n".join(prompt_parts)
 
-    prompt = f"""
-You are a helpful AI assistant for an e-commerce website. Your job is to answer customer questions based on available product details.
+    prompt = f"""You are a helpful AI assistant for an e-commerce website. Your job is to answer customer questions based on available product details.
 
-User question:
-{query}
+User question: {query}
 
 Here are some product descriptions that may be relevant:
 {context}
 
 Provide an informative and accurate response using the product information above. If multiple items are relevant, mention them.
-If you don't know the answer, say "I’m not sure based on the available product data."
-If query requests to show pictures related to the product, please return the corresponding image URLs from the context.
-"""
+If you don't know the answer, say "I'm not sure based on the available product data."
+If query requests to show pictures related to the product, please return the corresponding image URLs from the context."""
+    
     return prompt.strip()
 
 # --- Query embedding & retrieval ---
@@ -173,29 +172,30 @@ if submit_button:
         try:
             with st.spinner("Generating response..."):
                 prompt, top_items = get_query_embedding(text_query, image_file=uploaded_image, k=2)
-
+                
+                # Use chat_completion instead of text_generation
+                messages = [{"role": "user", "content": prompt}]
                 response = client.chat_completion(
-                    messages=[
-                        {"role": "system", "content": "You are a helpful e-commerce assistant that answers user queries using the provided product data."},
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     max_tokens=500,
                     temperature=0.05
                 )
-
-                response_text = response.choices[0].message["content"]
-
+                
+                # Extract the response text
+                response_text = response.choices[0].message.content
+            
             st.subheader("Response:")
             st.write(response_text)
 
+            # Extract image URLs from the LLM response and display them
             img_urls = re.findall(r"https:\/\/[^\s\"']+?\.jpg", response_text, flags=re.IGNORECASE)
             if img_urls:
                 st.subheader("Images:")
                 for url in img_urls:
                     st.image(url, use_column_width=True)
             else:
+                # If no images found in response, optionally show images from top results
                 st.info("No images found in the response.")
 
         except Exception as e:
             st.error(f"Something went wrong: {e}")
-
